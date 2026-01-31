@@ -1,0 +1,1010 @@
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+const colorPicker = document.getElementById('colorPicker');
+const sizePicker = document.getElementById('sizePicker');
+const clearBtn = document.getElementById('clearBtn');
+const undoBtn = document.getElementById('undoBtn');
+const redoBtn = document.getElementById('redoBtn');
+const lockBtn = document.getElementById('lockBtn');
+const exportBtn = document.getElementById('exportBtn');
+const shareBtn = document.getElementById('shareBtn');
+const imageInput = document.getElementById('imageInput');
+const textModal = document.getElementById('textModal');
+const textInput = document.getElementById('textInput');
+const menuToggle = document.getElementById('menuToggle');
+const controls = document.querySelector('.controls');
+const toolButtons = document.querySelectorAll('.tool-button');
+
+const Tools = {
+  SELECT: 'select',
+  PEN: 'pen',
+  LINE: 'line',
+  RECTANGLE: 'rectangle',
+  ELLIPSE: 'ellipse',
+  TEXT: 'text',
+  IMAGE: 'image',
+  ERASER: 'eraser',
+};
+
+let currentTool = Tools.PEN;
+let elements = [];
+let undoStack = [];
+let redoStack = [];
+let isDrawing = false;
+let activeElementId = null;
+let dragStart = null;
+let resizeStart = null;
+let pointerDownPos = null;
+let nextIdValue = 1;
+let pendingImagePosition = null;
+let currentTextPosition = null;
+const imageCache = new Map();
+
+// LocalStorage management
+const STORAGE_KEY = 'whiteboard_drawing';
+
+function saveToLocalStorage() {
+  try {
+    const data = {
+      elements,
+      nextIdValue,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (err) {
+    console.error('Failed to save to localStorage:', err);
+  }
+}
+
+function loadFromLocalStorage() {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    if (data) {
+      const parsed = JSON.parse(data);
+      elements = parsed.elements || [];
+      nextIdValue = parsed.nextIdValue || 1;
+      return true;
+    }
+  } catch (err) {
+    console.error('Failed to load from localStorage:', err);
+  }
+  return false;
+}
+
+function nextId() {
+  return nextIdValue++;
+}
+
+function deepClone(value) {
+  if (window.structuredClone) return window.structuredClone(value);
+  return JSON.parse(JSON.stringify(value));
+}
+
+function pushHistory() {
+  undoStack.push(deepClone(elements));
+  if (undoStack.length > 100) undoStack.shift();
+  redoStack.length = 0;
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(deepClone(elements));
+  elements = undoStack.pop();
+  activeElementId = null;
+  render();
+  updateLockButton();
+}
+
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(deepClone(elements));
+  elements = redoStack.pop();
+  activeElementId = null;
+  render();
+  updateLockButton();
+}
+
+function getCanvasPos(evt) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: evt.clientX - rect.left,
+    y: evt.clientY - rect.top,
+  };
+}
+
+function setCanvasSize() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  render();
+}
+
+window.addEventListener('resize', setCanvasSize);
+
+function getActiveElement() {
+  return elements.find((el) => el.id === activeElementId) || null;
+}
+
+function updateLockButton() {
+  const el = getActiveElement();
+  if (!el) {
+    lockBtn.disabled = true;
+    lockBtn.textContent = 'Lock';
+  } else {
+    lockBtn.disabled = false;
+    lockBtn.textContent = el.locked ? 'Unlock' : 'Lock';
+  }
+}
+
+function distancePointToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  if (dx === 0 && dy === 0) return Math.hypot(px - x1, py - y1);
+  const t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+  const clampedT = Math.max(0, Math.min(1, t));
+  const cx = x1 + clampedT * dx;
+  const cy = y1 + clampedT * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+function hitTest(pos) {
+  for (let i = elements.length - 1; i >= 0; i -= 1) {
+    const el = elements[i];
+    if (isPointInElement(pos, el)) return el;
+  }
+  return null;
+}
+
+function isPointInElement(pos, el) {
+  const { x, y } = pos;
+  switch (el.type) {
+    case 'rectangle': {
+      const x1 = Math.min(el.x, el.x + el.w);
+      const y1 = Math.min(el.y, el.y + el.h);
+      const x2 = Math.max(el.x, el.x + el.w);
+      const y2 = Math.max(el.y, el.y + el.h);
+      return x >= x1 && x <= x2 && y >= y1 && y <= y2;
+    }
+    case 'ellipse': {
+      const rx = Math.abs(el.w) / 2;
+      const ry = Math.abs(el.h) / 2;
+      if (rx === 0 || ry === 0) return false;
+      const cx = el.x + el.w / 2;
+      const cy = el.y + el.h / 2;
+      const nx = (x - cx) / rx;
+      const ny = (y - cy) / ry;
+      return nx * nx + ny * ny <= 1;
+    }
+    case 'line':
+      return (
+        distancePointToSegment(x, y, el.x1, el.y1, el.x2, el.y2) <=
+        (el.size || 4) + 3
+      );
+    case 'pen': {
+      const pts = el.points;
+      for (let i = 0; i < pts.length - 1; i += 1) {
+        const p1 = pts[i];
+        const p2 = pts[i + 1];
+        if (
+          distancePointToSegment(x, y, p1.x, p1.y, p2.x, p2.y) <=
+          (el.size || 4) + 3
+        ) {
+          return true;
+        }
+      }
+      return false;
+    }
+    case 'text': {
+      const fontSize = el.size || 16;
+      ctx.save();
+      ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+      const width = ctx.measureText(el.text).width;
+      ctx.restore();
+      const height = fontSize * 1.2;
+      return (
+        x >= el.x && x <= el.x + width && y >= el.y && y <= el.y + height
+      );
+    }
+    case 'image':
+      return (
+        x >= el.x &&
+        x <= el.x + el.width &&
+        y >= el.y &&
+        y <= el.y + el.height
+      );
+    default:
+      return false;
+  }
+}
+
+function elementBounds(el) {
+  switch (el.type) {
+    case 'rectangle': {
+      const x1 = Math.min(el.x, el.x + el.w);
+      const y1 = Math.min(el.y, el.y + el.h);
+      const x2 = Math.max(el.x, el.x + el.w);
+      const y2 = Math.max(el.y, el.y + el.h);
+      return { x1, y1, x2, y2 };
+    }
+    case 'ellipse': {
+      const x1 = Math.min(el.x, el.x + el.w);
+      const y1 = Math.min(el.y, el.y + el.h);
+      const x2 = Math.max(el.x, el.x + el.w);
+      const y2 = Math.max(el.y, el.y + el.h);
+      return { x1, y1, x2, y2 };
+    }
+    case 'line': {
+      const x1 = Math.min(el.x1, el.x2);
+      const y1 = Math.min(el.y1, el.y2);
+      const x2 = Math.max(el.x1, el.x2);
+      const y2 = Math.max(el.y1, el.y2);
+      return { x1, y1, x2, y2 };
+    }
+    case 'pen': {
+      let x1 = Infinity;
+      let y1 = Infinity;
+      let x2 = -Infinity;
+      let y2 = -Infinity;
+      el.points.forEach((p) => {
+        x1 = Math.min(x1, p.x);
+        y1 = Math.min(y1, p.y);
+        x2 = Math.max(x2, p.x);
+        y2 = Math.max(y2, p.y);
+      });
+      if (!Number.isFinite(x1)) {
+        x1 = 0;
+        y1 = 0;
+        x2 = 0;
+        y2 = 0;
+      }
+      return { x1, y1, x2, y2 };
+    }
+    case 'text': {
+      const fontSize = el.size || 16;
+      ctx.save();
+      ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+      const width = ctx.measureText(el.text).width;
+      ctx.restore();
+      const height = fontSize * 1.2;
+      return { x1: el.x, y1: el.y, x2: el.x + width, y2: el.y + height };
+    }
+    case 'image':
+      return {
+        x1: el.x,
+        y1: el.y,
+        x2: el.x + el.width,
+        y2: el.y + el.height,
+      };
+    default:
+      return { x1: 0, y1: 0, x2: 0, y2: 0 };
+  }
+}
+
+function drawElement(el) {
+  ctx.strokeStyle = el.color || '#e5e7eb';
+  ctx.lineWidth = el.size || 2;
+
+  switch (el.type) {
+    case 'rectangle': {
+      ctx.beginPath();
+      ctx.rect(el.x, el.y, el.w, el.h);
+      ctx.stroke();
+      break;
+    }
+    case 'ellipse': {
+      const cx = el.x + el.w / 2;
+      const cy = el.y + el.h / 2;
+      const rx = Math.abs(el.w) / 2;
+      const ry = Math.abs(el.h) / 2;
+      if (rx === 0 || ry === 0) break;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    }
+    case 'line': {
+      ctx.beginPath();
+      ctx.moveTo(el.x1, el.y1);
+      ctx.lineTo(el.x2, el.y2);
+      ctx.stroke();
+      break;
+    }
+    case 'pen': {
+      const pts = el.points;
+      if (pts.length < 2) break;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i += 1) {
+        ctx.lineTo(pts[i].x, pts[i].y);
+      }
+      ctx.stroke();
+      break;
+    }
+    case 'text': {
+      ctx.save();
+      const fontSize = el.size || 16;
+      ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+      ctx.fillStyle = el.color || '#0f172a';
+      ctx.textBaseline = 'top';
+      ctx.fillText(el.text, el.x, el.y);
+      ctx.restore();
+      break;
+    }
+    case 'image': {
+      let img = imageCache.get(el.src);
+      if (!img) {
+        img = new Image();
+        img.src = el.src;
+        img.onload = () => render();
+        imageCache.set(el.src, img);
+      }
+      if (img.complete && img.naturalWidth) {
+        ctx.drawImage(img, el.x, el.y, el.width, el.height);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+function drawSelectionOutline(el) {
+  if (!el) return;
+  const { x1, y1, x2, y2 } = elementBounds(el);
+  const pad = 4;
+  ctx.save();
+  ctx.setLineDash([4, 3]);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#3b82f6';
+  ctx.strokeRect(x1 - pad, y1 - pad, x2 - x1 + pad * 2, y2 - y1 + pad * 2);
+  ctx.setLineDash([]);
+
+  // Resize handle for all shapes (bottom-right corner)
+  const size = 10;
+  const handleX = x2 - size;
+  const handleY = y2 - size;
+  ctx.fillStyle = '#3b82f6';
+  ctx.fillRect(handleX, handleY, size, size);
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(handleX, handleY, size, size);
+
+  ctx.restore();
+}
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  elements.forEach((el) => drawElement(el));
+  const active = getActiveElement();
+  if (active) drawSelectionOutline(active);
+  saveToLocalStorage();
+}
+
+function startDrawing(pos) {
+  pushHistory();
+  isDrawing = true;
+  pointerDownPos = pos;
+
+  const common = {
+    id: nextId(),
+    color: colorPicker.value,
+    size: Number(sizePicker.value) || 2,
+    locked: false,
+  };
+
+  let el = null;
+  switch (currentTool) {
+    case Tools.PEN:
+      el = {
+        ...common,
+        type: 'pen',
+        points: [pos],
+      };
+      break;
+    case Tools.LINE:
+      el = {
+        ...common,
+        type: 'line',
+        x1: pos.x,
+        y1: pos.y,
+        x2: pos.x,
+        y2: pos.y,
+      };
+      break;
+    case Tools.RECTANGLE:
+      el = {
+        ...common,
+        type: 'rectangle',
+        x: pos.x,
+        y: pos.y,
+        w: 0,
+        h: 0,
+      };
+      break;
+    case Tools.ELLIPSE:
+      el = {
+        ...common,
+        type: 'ellipse',
+        x: pos.x,
+        y: pos.y,
+        w: 0,
+        h: 0,
+      };
+      break;
+    default:
+      break;
+  }
+
+  if (!el) return;
+  elements.push(el);
+  activeElementId = el.id;
+  render();
+}
+
+function updateDrawing(pos) {
+  if (!isDrawing) return;
+  const el = getActiveElement();
+  if (!el) return;
+
+  switch (el.type) {
+    case 'pen':
+      el.points.push({ x: pos.x, y: pos.y });
+      break;
+    case 'line':
+      el.x2 = pos.x;
+      el.y2 = pos.y;
+      break;
+    case 'rectangle':
+      el.w = pos.x - el.x;
+      el.h = pos.y - el.y;
+      break;
+    case 'ellipse':
+      el.w = pos.x - el.x;
+      el.h = pos.y - el.y;
+      break;
+    default:
+      break;
+  }
+
+  render();
+}
+
+function stopDrawing() {
+  isDrawing = false;
+  pointerDownPos = null;
+}
+
+function startDraggingSelection(pos) {
+  const el = hitTest(pos);
+  if (!el) {
+    activeElementId = null;
+    dragStart = null;
+    render();
+    updateLockButton();
+    return;
+  }
+
+  activeElementId = el.id;
+  dragStart = {
+    mouse: pos,
+    elementSnapshot: deepClone(el),
+  };
+  render();
+  updateLockButton();
+}
+
+function updateDragging(pos) {
+  if (!dragStart) return;
+  const el = getActiveElement();
+  if (!el) return;
+
+  const dx = pos.x - dragStart.mouse.x;
+  const dy = pos.y - dragStart.mouse.y;
+  const snap = dragStart.elementSnapshot;
+
+  switch (el.type) {
+    case 'rectangle':
+    case 'ellipse':
+      el.x = snap.x + dx;
+      el.y = snap.y + dy;
+      break;
+    case 'line':
+      el.x1 = snap.x1 + dx;
+      el.y1 = snap.y1 + dy;
+      el.x2 = snap.x2 + dx;
+      el.y2 = snap.y2 + dy;
+      break;
+    case 'pen':
+      el.points = snap.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+      break;
+    case 'text':
+      el.x = snap.x + dx;
+      el.y = snap.y + dy;
+      break;
+    case 'image':
+      el.x = snap.x + dx;
+      el.y = snap.y + dy;
+      break;
+    default:
+      break;
+  }
+
+  render();
+}
+
+function stopDragging() {
+  if (dragStart && getActiveElement()) {
+    pushHistory();
+  }
+  dragStart = null;
+}
+
+function updateResizing(pos) {
+  if (!resizeStart) return;
+  const el = getActiveElement();
+  if (!el) return;
+
+  const dx = pos.x - resizeStart.mouse.x;
+  const dy = pos.y - resizeStart.mouse.y;
+  const snap = resizeStart.elementSnapshot;
+  const minSize = 20;
+
+  switch (el.type) {
+    case 'image': {
+      let newWidth = snap.width + dx;
+      if (newWidth < minSize) newWidth = minSize;
+      const scale = newWidth / snap.width;
+      const newHeight = snap.height * scale;
+      el.width = newWidth;
+      el.height = newHeight;
+      break;
+    }
+    case 'rectangle': {
+      const newW = snap.w + dx;
+      const newH = snap.h + dy;
+      el.w = Math.abs(newW) < minSize ? (newW >= 0 ? minSize : -minSize) : newW;
+      el.h = Math.abs(newH) < minSize ? (newH >= 0 ? minSize : -minSize) : newH;
+      break;
+    }
+    case 'ellipse': {
+      const newW = snap.w + dx;
+      const newH = snap.h + dy;
+      el.w = Math.abs(newW) < minSize ? (newW >= 0 ? minSize : -minSize) : newW;
+      el.h = Math.abs(newH) < minSize ? (newH >= 0 ? minSize : -minSize) : newH;
+      break;
+    }
+    case 'line': {
+      const dx2 = pos.x - resizeStart.mouse.x;
+      const dy2 = pos.y - resizeStart.mouse.y;
+      el.x2 = snap.x2 + dx2;
+      el.y2 = snap.y2 + dy2;
+      break;
+    }
+    case 'pen': {
+      const dx2 = pos.x - resizeStart.mouse.x;
+      const dy2 = pos.y - resizeStart.mouse.y;
+      el.points = snap.points.map((p) => ({
+        x: p.x + dx2,
+        y: p.y + dy2,
+      }));
+      break;
+    }
+    case 'text': {
+      const newSize = Math.max(8, snap.size + Math.round(dx / 5));
+      el.size = newSize;
+      break;
+    }
+  }
+
+  render();
+}
+
+function stopResizing() {
+  if (resizeStart && getActiveElement()) {
+    pushHistory();
+  }
+  resizeStart = null;
+}
+
+function openTextModal(evt) {
+  const pos = getCanvasPos(evt);
+  currentTextPosition = { x: pos.x, y: pos.y };
+  textInput.value = '';
+  textModal.classList.add('active');
+  textInput.focus();
+}
+
+function closeTextModal() {
+  textModal.classList.remove('active');
+}
+
+function commitText() {
+  const text = textInput.value.trim();
+  closeTextModal();
+  if (!text || !currentTextPosition) return;
+  pushHistory();
+  const rawSize = Number(sizePicker.value) || 16;
+  const fontSize = Math.max(12, rawSize * 2);
+
+  const el = {
+    id: nextId(),
+    type: 'text',
+    text,
+    x: currentTextPosition.x,
+    y: currentTextPosition.y,
+    color: colorPicker.value,
+    size: fontSize,
+    locked: false,
+  };
+  elements.push(el);
+  activeElementId = el.id;
+  currentTextPosition = null;
+  render();
+  updateLockButton();
+}
+
+function handleMouseDown(e) {
+  const pos = getCanvasPos(e);
+
+  if (currentTool === Tools.SELECT) {
+    const el = hitTest(pos);
+    if (!el) {
+      activeElementId = null;
+      dragStart = null;
+      resizeStart = null;
+      render();
+      updateLockButton();
+      return;
+    }
+
+    activeElementId = el.id;
+    
+    // Prevent dragging or resizing locked elements
+    if (el.locked) {
+      render();
+      updateLockButton();
+      return;
+    }
+    
+    const { x1, y1, x2, y2 } = elementBounds(el);
+    const handleSize = 12;
+    const inHandle =
+      pos.x >= x2 - handleSize &&
+      pos.x <= x2 &&
+      pos.y >= y2 - handleSize &&
+      pos.y <= y2;
+
+    if (inHandle) {
+      resizeStart = {
+        mouse: pos,
+        elementSnapshot: deepClone(el),
+      };
+    } else {
+      dragStart = {
+        mouse: pos,
+        elementSnapshot: deepClone(el),
+      };
+    }
+
+    render();
+    updateLockButton();
+    return;
+  }
+
+  if (currentTool === Tools.ERASER) {
+    const el = hitTest(pos);
+    if (el) {
+      pushHistory();
+      elements = elements.filter((item) => item.id !== el.id);
+      if (activeElementId === el.id) activeElementId = null;
+      render();
+      updateLockButton();
+    }
+    return;
+  }
+
+  if (currentTool === Tools.TEXT) {
+    openTextModal(e);
+    return;
+  }
+
+  if (currentTool === Tools.IMAGE) {
+    pendingImagePosition = pos;
+    imageInput.click();
+    return;
+  }
+
+  startDrawing(pos);
+}
+
+function handleMouseMove(e) {
+  const pos = getCanvasPos(e);
+
+  if (isDrawing) {
+    updateDrawing(pos);
+    return;
+  }
+
+  if (resizeStart) {
+    updateResizing(pos);
+    return;
+  }
+
+  if (dragStart) {
+    updateDragging(pos);
+  }
+}
+
+function handleMouseUp() {
+  if (isDrawing) {
+    stopDrawing();
+  }
+  if (dragStart) {
+    stopDragging();
+  }
+  if (resizeStart) {
+    stopResizing();
+  }
+}
+
+canvas.addEventListener('mousedown', handleMouseDown);
+window.addEventListener('mousemove', handleMouseMove);
+window.addEventListener('mouseup', handleMouseUp);
+
+clearBtn.addEventListener('click', () => {
+  if (!elements.length) return;
+  pushHistory();
+  elements = [];
+  activeElementId = null;
+  render();
+  updateLockButton();
+});
+
+undoBtn.addEventListener('click', undo);
+redoBtn.addEventListener('click', redo);
+
+lockBtn.addEventListener('click', () => {
+  const el = getActiveElement();
+  if (!el) return;
+  el.locked = !el.locked;
+  updateLockButton();
+  render();
+});
+
+menuToggle.addEventListener('click', () => {
+  controls.classList.toggle('active');
+});
+
+// Close menu when clicking outside
+document.addEventListener('click', (e) => {
+  if (!menuToggle.contains(e.target) && !controls.contains(e.target)) {
+    controls.classList.remove('active');
+  }
+});
+
+exportBtn.addEventListener('click', () => {
+  const dataUrl = canvas.toDataURL('image/png');
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = 'whiteboard.png';
+  link.click();
+});
+
+shareBtn.addEventListener('click', async () => {
+  const dataUrl = canvas.toDataURL('image/png');
+  try {
+    if (
+      navigator.share &&
+      window.Blob &&
+      window.File &&
+      navigator.canShare
+    ) {
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const file = new File([blob], 'whiteboard.png', { type: 'image/png' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Whiteboard' });
+        return;
+      }
+    }
+
+    if (navigator.share) {
+      await navigator.share({ title: 'Whiteboard', url: dataUrl });
+      return;
+    }
+
+    window.prompt('Copy this image URL to share:', dataUrl);
+  } catch (err) {
+    window.prompt('Copy this image URL to share:', dataUrl);
+  }
+});
+
+imageInput.addEventListener('change', (e) => {
+  const [file] = e.target.files;
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const src = reader.result;
+    const img = new Image();
+    img.onload = () => {
+      const maxWidth = canvas.clientWidth * 0.6;
+      const maxHeight = canvas.clientHeight * 0.6;
+      let { width, height } = img;
+      const scale = Math.min(1, maxWidth / width, maxHeight / height);
+      width *= scale;
+      height *= scale;
+
+      const pos =
+        pendingImagePosition ||
+        {
+          x: (canvas.clientWidth - width) / 2,
+          y: (canvas.clientHeight - height) / 2,
+        };
+
+      pushHistory();
+      const el = {
+        id: nextId(),
+        type: 'image',
+        x: pos.x,
+        y: pos.y,
+        width,
+        height,
+        src,
+        locked: false,
+      };
+      elements.push(el);
+      imageCache.set(src, img);
+      activeElementId = el.id;
+      pendingImagePosition = null;
+      render();
+      updateLockButton();
+    };
+    img.src = src;
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+textInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    commitText();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeTextModal();
+    currentTextPosition = null;
+  }
+});
+
+textModal.addEventListener('click', (e) => {
+  if (e.target === textModal) {
+    closeTextModal();
+    currentTextPosition = null;
+  }
+});
+
+function setTool(tool) {
+  currentTool = tool;
+  toolButtons.forEach((b) => {
+    const bTool = b.dataset.tool;
+    b.classList.toggle('active', bTool === tool);
+  });
+  if (tool !== Tools.TEXT) {
+    closeTextModal();
+    currentTextPosition = null;
+  }
+}
+
+toolButtons.forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const tool = btn.dataset.tool;
+    setTool(tool);
+  });
+});
+
+document.addEventListener('keydown', (e) => {
+  const activeTag =
+    document.activeElement && document.activeElement.tagName.toLowerCase();
+
+  // Allow Ctrl/Cmd undo/redo even when typing, but avoid other shortcuts
+  if (activeTag === 'input' || activeTag === 'textarea') {
+    if (!(e.ctrlKey || e.metaKey)) return;
+  }
+
+  // Undo / redo
+  if (e.ctrlKey || e.metaKey) {
+    const key = e.key.toLowerCase();
+    if (key === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        redo();
+      } else {
+        undo();
+      }
+      return;
+    }
+    if (key === 'y') {
+      e.preventDefault();
+      redo();
+      return;
+    }
+    if (key === 's') {
+      e.preventDefault();
+      exportBtn.click();
+      return;
+    }
+  }
+
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  
+  // Escape key to select tool
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    setTool(Tools.SELECT);
+    return;
+  }
+
+  const key = e.key.toLowerCase();
+  switch (key) {
+    case 'v':
+      setTool(Tools.SELECT);
+      break;
+    case 'p':
+    case 'b':
+      setTool(Tools.PEN);
+      break;
+    case 'l':
+      setTool(Tools.LINE);
+      break;
+    case 'r':
+      setTool(Tools.RECTANGLE);
+      break;
+    case 'o':
+      setTool(Tools.ELLIPSE);
+      break;
+    case 't':
+      setTool(Tools.TEXT);
+      break;
+    case 'i': {
+      const el = getActiveElement();
+      if (!el) break;
+      e.preventDefault();
+      el.locked = !el.locked;
+      updateLockButton();
+      render();
+      break;
+    }
+    case 'e':
+      setTool(Tools.ERASER);
+      break;
+    case 'delete':
+    case 'backspace': {
+      const el = getActiveElement();
+      if (!el || el.locked) return;
+      e.preventDefault();
+      pushHistory();
+      elements = elements.filter((item) => item.id !== el.id);
+      activeElementId = null;
+      render();
+      updateLockButton();
+      break;
+    }
+    default:
+      break;
+  }
+});
+
+const defaultToolButton = document.querySelector(
+  '.tool-button[data-tool="pen"]',
+);
+if (defaultToolButton) {
+  defaultToolButton.classList.add('active');
+}
+
+// Load saved drawing from localStorage
+loadFromLocalStorage();
+
+setCanvasSize();
