@@ -1,27 +1,92 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PPTLinks</title>
     <link rel="stylesheet" href="styles.css" />
-    <link rel="shortcut icon" href="./svg.svg" type="svg/x-icon">
+    <link rel="shortcut icon" href="./svg.svg" type="svg/x-icon" />
   </head>
   <body>
     <div class="app">
       <header class="toolbar">
         <div class="toolbar-left">
-          <h1 class="title" style="display: flex;gap: 2px; align-items: center;"><img src="./svg.svg" alt="logo" style="width: 25px; aspect-ratio: square;">PPTLinks</h1>
+          <h1
+            class="title"
+            style="display: flex; gap: 2px; align-items: center"
+          >
+            <img
+              src="./svg.svg"
+              alt="logo"
+              style="width: 25px; aspect-ratio: square"
+            />PPTLinks
+          </h1>
           <div class="tool-group-wrapper">
             <div class="tool-group" id="toolButtons">
-              <button class="tool-button" data-tool="select" title="Select (V)" aria-label="Select tool (shortcut V)">Select</button>
-              <button class="tool-button" data-tool="pen" title="Pen (P or B)" aria-label="Pen tool (shortcut P or B)">Pen</button>
-              <button class="tool-button" data-tool="line" title="Line (L)" aria-label="Line tool (shortcut L)">Line</button>
-              <button class="tool-button" data-tool="rectangle" title="Rectangle (R)" aria-label="Rectangle tool (shortcut R)">Rect</button>
-              <button class="tool-button" data-tool="ellipse" title="Ellipse (O)" aria-label="Ellipse tool (shortcut O)">Ellipse</button>
-              <button class="tool-button" data-tool="text" title="Text (T)" aria-label="Text tool (shortcut T)">Text</button>
-              <button class="tool-button" data-tool="image" title="Image (I)" aria-label="Image tool (shortcut I)">Image</button>
-              <button class="tool-button" data-tool="eraser" title="Eraser (E)" aria-label="Eraser tool (shortcut E)">Eraser</button>
+              <button
+                class="tool-button"
+                data-tool="select"
+                title="Select (V)"
+                aria-label="Select tool (shortcut V)"
+              >
+                Select
+              </button>
+              <button
+                class="tool-button"
+                data-tool="pen"
+                title="Pen (P or B)"
+                aria-label="Pen tool (shortcut P or B)"
+              >
+                Pen
+              </button>
+              <button
+                class="tool-button"
+                data-tool="line"
+                title="Line (L)"
+                aria-label="Line tool (shortcut L)"
+              >
+                Line
+              </button>
+              <button
+                class="tool-button"
+                data-tool="rectangle"
+                title="Rectangle (R)"
+                aria-label="Rectangle tool (shortcut R)"
+              >
+                Rect
+              </button>
+              <button
+                class="tool-button"
+                data-tool="ellipse"
+                title="Ellipse (O)"
+                aria-label="Ellipse tool (shortcut O)"
+              >
+                Ellipse
+              </button>
+              <button
+                class="tool-button"
+                data-tool="text"
+                title="Text (T)"
+                aria-label="Text tool (shortcut T)"
+              >
+                Text
+              </button>
+              <button
+                class="tool-button"
+                data-tool="image"
+                title="Image (I)"
+                aria-label="Image tool (shortcut I)"
+              >
+                Image
+              </button>
+              <button
+                class="tool-button"
+                data-tool="eraser"
+                title="Eraser (E)"
+                aria-label="Eraser tool (shortcut E)"
+              >
+                Eraser
+              </button>
             </div>
           </div>
         </div>
@@ -34,15 +99,58 @@
             Size
             <input type="range" id="sizePicker" min="1" max="30" value="5" />
           </label>
-          <button id="undoBtn" title="Undo (Ctrl+Z)" aria-label="Undo (shortcut Ctrl+Z)">Undo</button>
-          <button id="redoBtn" title="Redo (Ctrl+Y / Ctrl+Shift+Z)" aria-label="Redo (shortcut Ctrl+Y or Ctrl+Shift+Z)">Redo</button>
-          <button id="lockBtn" disabled title="Lock selected" aria-label="Lock or unlock selected shape">Lock</button>
-          <button id="clearBtn" title="Clear board" aria-label="Clear board">Clear</button>
-          <button id="exportBtn" title="Export as PNG" aria-label="Export as PNG image">Export PNG</button>
-          <button id="shareBtn" title="Share image" aria-label="Share image">Share</button>
+          <button
+            id="undoBtn"
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo (shortcut Ctrl+Z)"
+          >
+            Undo
+          </button>
+          <button
+            id="redoBtn"
+            title="Redo (Ctrl+Y / Ctrl+Shift+Z)"
+            aria-label="Redo (shortcut Ctrl+Y or Ctrl+Shift+Z)"
+          >
+            Redo
+          </button>
+          <button
+            id="lockBtn"
+            disabled
+            title="Lock selected"
+            aria-label="Lock or unlock selected shape"
+          >
+            Lock
+          </button>
+          <button id="clearBtn" title="Clear board" aria-label="Clear board">
+            Clear
+          </button>
+          <button
+            id="exportBtn"
+            title="Export as PNG"
+            aria-label="Export as PNG image"
+          >
+            Export PNG
+          </button>
+          <button id="shareBtn" title="Share image" aria-label="Share image">
+            Share
+          </button>
         </div>
-        <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu" title="Toggle menu">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button
+          class="menu-toggle"
+          id="menuToggle"
+          aria-label="Toggle menu"
+          title="Toggle menu"
+        >
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
@@ -52,11 +160,21 @@
         <canvas id="board"></canvas>
         <div id="textModal" class="text-modal">
           <div class="text-modal-content">
-            <input type="text" id="textInput" class="text-input" placeholder="Enter text..." />
+            <input
+              type="text"
+              id="textInput"
+              class="text-input"
+              placeholder="Enter text..."
+            />
           </div>
         </div>
       </main>
-      <input type="file" id="imageInput" accept="image/*" style="display: none" />
+      <input
+        type="file"
+        id="imageInput"
+        accept="image/*"
+        style="display: none"
+      />
     </div>
 
     <script src="app.js"></script>
