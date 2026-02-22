@@ -1,29 +1,30 @@
-const canvas = document.getElementById('board');
-const ctx = canvas.getContext('2d');
-const colorPicker = document.getElementById('colorPicker');
-const sizePicker = document.getElementById('sizePicker');
-const clearBtn = document.getElementById('clearBtn');
-const undoBtn = document.getElementById('undoBtn');
-const redoBtn = document.getElementById('redoBtn');
-const lockBtn = document.getElementById('lockBtn');
-const exportBtn = document.getElementById('exportBtn');
-const shareBtn = document.getElementById('shareBtn');
-const imageInput = document.getElementById('imageInput');
-const textModal = document.getElementById('textModal');
-const textInput = document.getElementById('textInput');
-const menuToggle = document.getElementById('menuToggle');
-const controls = document.querySelector('.controls');
-const toolButtons = document.querySelectorAll('.tool-button');
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
+const colorPicker = document.getElementById("colorPicker");
+const sizePicker = document.getElementById("sizePicker");
+const clearBtn = document.getElementById("clearBtn");
+const undoBtn = document.getElementById("undoBtn");
+const redoBtn = document.getElementById("redoBtn");
+const lockBtn = document.getElementById("lockBtn");
+const exportBtn = document.getElementById("exportBtn");
+const shareBtn = document.getElementById("shareBtn");
+const imageInput = document.getElementById("imageInput");
+const textModal = document.getElementById("textModal");
+const textInput = document.getElementById("textInput");
+const menuToggle = document.getElementById("menuToggle");
+const controls = document.querySelector(".controls");
+const toolButtons = document.querySelectorAll(".tool-button");
 
 const Tools = {
-  SELECT: 'select',
-  PEN: 'pen',
-  LINE: 'line',
-  RECTANGLE: 'rectangle',
-  ELLIPSE: 'ellipse',
-  TEXT: 'text',
-  IMAGE: 'image',
-  ERASER: 'eraser',
+  SELECT: "select",
+  PEN: "pen",
+  LINE: "line",
+  RECTANGLE: "rectangle",
+  ELLIPSE: "ellipse",
+  TEXT: "text",
+  IMAGE: "image",
+  ERASER: "eraser",
+  ERASER_AREA: "eraser_area",
 };
 
 let currentTool = Tools.PEN;
@@ -38,10 +39,12 @@ let pointerDownPos = null;
 let nextIdValue = 1;
 let pendingImagePosition = null;
 let currentTextPosition = null;
+let selectionRect = null;
+let isBoardLocked = false;
 const imageCache = new Map();
 
 // LocalStorage management
-const STORAGE_KEY = 'whiteboard_drawing';
+const STORAGE_KEY = "whiteboard_drawing";
 
 function saveToLocalStorage() {
   try {
@@ -51,7 +54,7 @@ function saveToLocalStorage() {
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch (err) {
-    console.error('Failed to save to localStorage:', err);
+    console.error("Failed to save to localStorage:", err);
   }
 }
 
@@ -65,7 +68,7 @@ function loadFromLocalStorage() {
       return true;
     }
   } catch (err) {
-    console.error('Failed to load from localStorage:', err);
+    console.error("Failed to load from localStorage:", err);
   }
   return false;
 }
@@ -112,31 +115,52 @@ function getCanvasPos(evt) {
 }
 
 function setCanvasSize() {
+  const minWidth = 1300;
+  const minHeight = 800; // Define a minimum height threshold
+
+  const wrapper = canvas.parentElement;
+  const wrapperRect = wrapper.getBoundingClientRect();
+
+  // Dynamically set board dimensions based on viewport/wrapper
+  if (window.innerWidth < minWidth) {
+    canvas.style.width = `${minWidth}px`;
+  } else {
+    canvas.style.width = "100%";
+  }
+
+  // Vertical dimension always fits the container now
+  canvas.style.height = "100%";
+
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   render();
 }
 
-window.addEventListener('resize', setCanvasSize);
+window.addEventListener("resize", setCanvasSize);
+window.addEventListener("orientationchange", () => {
+  // Small delay to ensure innerWidth/Height are updated after orientation change
+  setTimeout(setCanvasSize, 100);
+});
 
 function getActiveElement() {
   return elements.find((el) => el.id === activeElementId) || null;
 }
 
 function updateLockButton() {
-  const el = getActiveElement();
-  if (!el) {
-    lockBtn.disabled = true;
-    lockBtn.textContent = 'Lock';
-  } else {
-    lockBtn.disabled = false;
-    lockBtn.textContent = el.locked ? 'Unlock' : 'Lock';
+  const icon = lockBtn.querySelector("i");
+  if (icon) {
+    icon.setAttribute("data-lucide", isBoardLocked ? "unlock" : "lock");
   }
+  lockBtn.title = isBoardLocked ? "Unlock board" : "Lock board";
+  lockBtn.classList.toggle("active", isBoardLocked);
+  canvas.classList.toggle("locked", isBoardLocked);
+
+  if (window.lucide) lucide.createIcons();
 }
 
 function distancePointToSegment(px, py, x1, y1, x2, y2) {
@@ -161,14 +185,14 @@ function hitTest(pos) {
 function isPointInElement(pos, el) {
   const { x, y } = pos;
   switch (el.type) {
-    case 'rectangle': {
+    case "rectangle": {
       const x1 = Math.min(el.x, el.x + el.w);
       const y1 = Math.min(el.y, el.y + el.h);
       const x2 = Math.max(el.x, el.x + el.w);
       const y2 = Math.max(el.y, el.y + el.h);
       return x >= x1 && x <= x2 && y >= y1 && y <= y2;
     }
-    case 'ellipse': {
+    case "ellipse": {
       const rx = Math.abs(el.w) / 2;
       const ry = Math.abs(el.h) / 2;
       if (rx === 0 || ry === 0) return false;
@@ -178,12 +202,12 @@ function isPointInElement(pos, el) {
       const ny = (y - cy) / ry;
       return nx * nx + ny * ny <= 1;
     }
-    case 'line':
+    case "line":
       return (
         distancePointToSegment(x, y, el.x1, el.y1, el.x2, el.y2) <=
         (el.size || 4) + 3
       );
-    case 'pen': {
+    case "pen": {
       const pts = el.points;
       for (let i = 0; i < pts.length - 1; i += 1) {
         const p1 = pts[i];
@@ -197,23 +221,18 @@ function isPointInElement(pos, el) {
       }
       return false;
     }
-    case 'text': {
+    case "text": {
       const fontSize = el.size || 16;
       ctx.save();
       ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
       const width = ctx.measureText(el.text).width;
       ctx.restore();
       const height = fontSize * 1.2;
-      return (
-        x >= el.x && x <= el.x + width && y >= el.y && y <= el.y + height
-      );
+      return x >= el.x && x <= el.x + width && y >= el.y && y <= el.y + height;
     }
-    case 'image':
+    case "image":
       return (
-        x >= el.x &&
-        x <= el.x + el.width &&
-        y >= el.y &&
-        y <= el.y + el.height
+        x >= el.x && x <= el.x + el.width && y >= el.y && y <= el.y + el.height
       );
     default:
       return false;
@@ -222,28 +241,28 @@ function isPointInElement(pos, el) {
 
 function elementBounds(el) {
   switch (el.type) {
-    case 'rectangle': {
+    case "rectangle": {
       const x1 = Math.min(el.x, el.x + el.w);
       const y1 = Math.min(el.y, el.y + el.h);
       const x2 = Math.max(el.x, el.x + el.w);
       const y2 = Math.max(el.y, el.y + el.h);
       return { x1, y1, x2, y2 };
     }
-    case 'ellipse': {
+    case "ellipse": {
       const x1 = Math.min(el.x, el.x + el.w);
       const y1 = Math.min(el.y, el.y + el.h);
       const x2 = Math.max(el.x, el.x + el.w);
       const y2 = Math.max(el.y, el.y + el.h);
       return { x1, y1, x2, y2 };
     }
-    case 'line': {
+    case "line": {
       const x1 = Math.min(el.x1, el.x2);
       const y1 = Math.min(el.y1, el.y2);
       const x2 = Math.max(el.x1, el.x2);
       const y2 = Math.max(el.y1, el.y2);
       return { x1, y1, x2, y2 };
     }
-    case 'pen': {
+    case "pen": {
       let x1 = Infinity;
       let y1 = Infinity;
       let x2 = -Infinity;
@@ -262,7 +281,7 @@ function elementBounds(el) {
       }
       return { x1, y1, x2, y2 };
     }
-    case 'text': {
+    case "text": {
       const fontSize = el.size || 16;
       ctx.save();
       ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
@@ -271,7 +290,7 @@ function elementBounds(el) {
       const height = fontSize * 1.2;
       return { x1: el.x, y1: el.y, x2: el.x + width, y2: el.y + height };
     }
-    case 'image':
+    case "image":
       return {
         x1: el.x,
         y1: el.y,
@@ -284,17 +303,17 @@ function elementBounds(el) {
 }
 
 function drawElement(el) {
-  ctx.strokeStyle = el.color || '#e5e7eb';
+  ctx.strokeStyle = el.color || "#e5e7eb";
   ctx.lineWidth = el.size || 2;
 
   switch (el.type) {
-    case 'rectangle': {
+    case "rectangle": {
       ctx.beginPath();
       ctx.rect(el.x, el.y, el.w, el.h);
       ctx.stroke();
       break;
     }
-    case 'ellipse': {
+    case "ellipse": {
       const cx = el.x + el.w / 2;
       const cy = el.y + el.h / 2;
       const rx = Math.abs(el.w) / 2;
@@ -305,14 +324,14 @@ function drawElement(el) {
       ctx.stroke();
       break;
     }
-    case 'line': {
+    case "line": {
       ctx.beginPath();
       ctx.moveTo(el.x1, el.y1);
       ctx.lineTo(el.x2, el.y2);
       ctx.stroke();
       break;
     }
-    case 'pen': {
+    case "pen": {
       const pts = el.points;
       if (pts.length < 2) break;
       ctx.beginPath();
@@ -323,17 +342,17 @@ function drawElement(el) {
       ctx.stroke();
       break;
     }
-    case 'text': {
+    case "text": {
       ctx.save();
       const fontSize = el.size || 16;
       ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
-      ctx.fillStyle = el.color || '#0f172a';
-      ctx.textBaseline = 'top';
+      ctx.fillStyle = el.color || "#0f172a";
+      ctx.textBaseline = "top";
       ctx.fillText(el.text, el.x, el.y);
       ctx.restore();
       break;
     }
-    case 'image': {
+    case "image": {
       let img = imageCache.get(el.src);
       if (!img) {
         img = new Image();
@@ -358,7 +377,7 @@ function drawSelectionOutline(el) {
   ctx.save();
   ctx.setLineDash([4, 3]);
   ctx.lineWidth = 1;
-  ctx.strokeStyle = '#3b82f6';
+  ctx.strokeStyle = "#3b82f6";
   ctx.strokeRect(x1 - pad, y1 - pad, x2 - x1 + pad * 2, y2 - y1 + pad * 2);
   ctx.setLineDash([]);
 
@@ -366,9 +385,9 @@ function drawSelectionOutline(el) {
   const size = 10;
   const handleX = x2 - size;
   const handleY = y2 - size;
-  ctx.fillStyle = '#3b82f6';
+  ctx.fillStyle = "#3b82f6";
   ctx.fillRect(handleX, handleY, size, size);
-  ctx.strokeStyle = '#0f172a';
+  ctx.strokeStyle = "#0f172a";
   ctx.lineWidth = 1;
   ctx.strokeRect(handleX, handleY, size, size);
 
@@ -380,6 +399,18 @@ function render() {
   elements.forEach((el) => drawElement(el));
   const active = getActiveElement();
   if (active) drawSelectionOutline(active);
+
+  if (selectionRect) {
+    ctx.save();
+    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = "rgba(59, 130, 246, 0.8)";
+    ctx.fillStyle = "rgba(59, 130, 246, 0.1)";
+    const { x, y, w, h } = selectionRect;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
   saveToLocalStorage();
 }
 
@@ -400,14 +431,14 @@ function startDrawing(pos) {
     case Tools.PEN:
       el = {
         ...common,
-        type: 'pen',
+        type: "pen",
         points: [pos],
       };
       break;
     case Tools.LINE:
       el = {
         ...common,
-        type: 'line',
+        type: "line",
         x1: pos.x,
         y1: pos.y,
         x2: pos.x,
@@ -417,7 +448,7 @@ function startDrawing(pos) {
     case Tools.RECTANGLE:
       el = {
         ...common,
-        type: 'rectangle',
+        type: "rectangle",
         x: pos.x,
         y: pos.y,
         w: 0,
@@ -427,7 +458,7 @@ function startDrawing(pos) {
     case Tools.ELLIPSE:
       el = {
         ...common,
-        type: 'ellipse',
+        type: "ellipse",
         x: pos.x,
         y: pos.y,
         w: 0,
@@ -450,18 +481,18 @@ function updateDrawing(pos) {
   if (!el) return;
 
   switch (el.type) {
-    case 'pen':
+    case "pen":
       el.points.push({ x: pos.x, y: pos.y });
       break;
-    case 'line':
+    case "line":
       el.x2 = pos.x;
       el.y2 = pos.y;
       break;
-    case 'rectangle':
+    case "rectangle":
       el.w = pos.x - el.x;
       el.h = pos.y - el.y;
       break;
-    case 'ellipse':
+    case "ellipse":
       el.w = pos.x - el.x;
       el.h = pos.y - el.y;
       break;
@@ -506,25 +537,25 @@ function updateDragging(pos) {
   const snap = dragStart.elementSnapshot;
 
   switch (el.type) {
-    case 'rectangle':
-    case 'ellipse':
+    case "rectangle":
+    case "ellipse":
       el.x = snap.x + dx;
       el.y = snap.y + dy;
       break;
-    case 'line':
+    case "line":
       el.x1 = snap.x1 + dx;
       el.y1 = snap.y1 + dy;
       el.x2 = snap.x2 + dx;
       el.y2 = snap.y2 + dy;
       break;
-    case 'pen':
+    case "pen":
       el.points = snap.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
       break;
-    case 'text':
+    case "text":
       el.x = snap.x + dx;
       el.y = snap.y + dy;
       break;
-    case 'image':
+    case "image":
       el.x = snap.x + dx;
       el.y = snap.y + dy;
       break;
@@ -553,7 +584,7 @@ function updateResizing(pos) {
   const minSize = 20;
 
   switch (el.type) {
-    case 'image': {
+    case "image": {
       let newWidth = snap.width + dx;
       if (newWidth < minSize) newWidth = minSize;
       const scale = newWidth / snap.width;
@@ -562,28 +593,28 @@ function updateResizing(pos) {
       el.height = newHeight;
       break;
     }
-    case 'rectangle': {
+    case "rectangle": {
       const newW = snap.w + dx;
       const newH = snap.h + dy;
       el.w = Math.abs(newW) < minSize ? (newW >= 0 ? minSize : -minSize) : newW;
       el.h = Math.abs(newH) < minSize ? (newH >= 0 ? minSize : -minSize) : newH;
       break;
     }
-    case 'ellipse': {
+    case "ellipse": {
       const newW = snap.w + dx;
       const newH = snap.h + dy;
       el.w = Math.abs(newW) < minSize ? (newW >= 0 ? minSize : -minSize) : newW;
       el.h = Math.abs(newH) < minSize ? (newH >= 0 ? minSize : -minSize) : newH;
       break;
     }
-    case 'line': {
+    case "line": {
       const dx2 = pos.x - resizeStart.mouse.x;
       const dy2 = pos.y - resizeStart.mouse.y;
       el.x2 = snap.x2 + dx2;
       el.y2 = snap.y2 + dy2;
       break;
     }
-    case 'pen': {
+    case "pen": {
       const dx2 = pos.x - resizeStart.mouse.x;
       const dy2 = pos.y - resizeStart.mouse.y;
       el.points = snap.points.map((p) => ({
@@ -592,7 +623,7 @@ function updateResizing(pos) {
       }));
       break;
     }
-    case 'text': {
+    case "text": {
       const newSize = Math.max(8, snap.size + Math.round(dx / 5));
       el.size = newSize;
       break;
@@ -612,13 +643,13 @@ function stopResizing() {
 function openTextModal(evt) {
   const pos = getCanvasPos(evt);
   currentTextPosition = { x: pos.x, y: pos.y };
-  textInput.value = '';
-  textModal.classList.add('active');
+  textInput.value = "";
+  textModal.classList.add("active");
   textInput.focus();
 }
 
 function closeTextModal() {
-  textModal.classList.remove('active');
+  textModal.classList.remove("active");
 }
 
 function commitText() {
@@ -631,7 +662,7 @@ function commitText() {
 
   const el = {
     id: nextId(),
-    type: 'text',
+    type: "text",
     text,
     x: currentTextPosition.x,
     y: currentTextPosition.y,
@@ -647,6 +678,7 @@ function commitText() {
 }
 
 function handleMouseDown(e) {
+  if (isBoardLocked) return;
   const pos = getCanvasPos(e);
 
   if (currentTool === Tools.SELECT) {
@@ -661,14 +693,14 @@ function handleMouseDown(e) {
     }
 
     activeElementId = el.id;
-    
+
     // Prevent dragging or resizing locked elements
     if (el.locked) {
       render();
       updateLockButton();
       return;
     }
-    
+
     const { x1, y1, x2, y2 } = elementBounds(el);
     const handleSize = 12;
     const inHandle =
@@ -717,6 +749,13 @@ function handleMouseDown(e) {
     return;
   }
 
+  if (currentTool === Tools.ERASER_AREA) {
+    isDrawing = true;
+    pointerDownPos = pos;
+    selectionRect = { x: pos.x, y: pos.y, w: 0, h: 0 };
+    return;
+  }
+
   startDrawing(pos);
 }
 
@@ -724,7 +763,13 @@ function handleMouseMove(e) {
   const pos = getCanvasPos(e);
 
   if (isDrawing) {
-    updateDrawing(pos);
+    if (currentTool === Tools.ERASER_AREA) {
+      selectionRect.w = pos.x - pointerDownPos.x;
+      selectionRect.h = pos.y - pointerDownPos.y;
+      render();
+    } else {
+      updateDrawing(pos);
+    }
     return;
   }
 
@@ -740,6 +785,34 @@ function handleMouseMove(e) {
 
 function handleMouseUp() {
   if (isDrawing) {
+    if (currentTool === Tools.ERASER_AREA && selectionRect) {
+      const x1 = Math.min(selectionRect.x, selectionRect.x + selectionRect.w);
+      const y1 = Math.min(selectionRect.y, selectionRect.y + selectionRect.h);
+      const x2 = Math.max(selectionRect.x, selectionRect.x + selectionRect.w);
+      const y2 = Math.max(selectionRect.y, selectionRect.y + selectionRect.h);
+
+      const toDelete = elements.filter((el) => {
+        const bounds = elementBounds(el);
+        // Standard AABB intersection
+        return !(
+          bounds.x2 < x1 ||
+          bounds.x1 > x2 ||
+          bounds.y2 < y1 ||
+          bounds.y1 > y2
+        );
+      });
+
+      if (toDelete.length > 0) {
+        pushHistory();
+        const deleteIds = new Set(toDelete.map((el) => el.id));
+        elements = elements.filter((el) => !deleteIds.has(el.id));
+        if (activeElementId && deleteIds.has(activeElementId)) {
+          activeElementId = null;
+        }
+      }
+      selectionRect = null;
+      render();
+    }
     stopDrawing();
   }
   if (dragStart) {
@@ -750,11 +823,11 @@ function handleMouseUp() {
   }
 }
 
-canvas.addEventListener('mousedown', handleMouseDown);
-window.addEventListener('mousemove', handleMouseMove);
-window.addEventListener('mouseup', handleMouseUp);
+canvas.addEventListener("mousedown", handleMouseDown);
+window.addEventListener("mousemove", handleMouseMove);
+window.addEventListener("mouseup", handleMouseUp);
 
-clearBtn.addEventListener('click', () => {
+clearBtn.addEventListener("click", () => {
   if (!elements.length) return;
   pushHistory();
   elements = [];
@@ -763,66 +836,59 @@ clearBtn.addEventListener('click', () => {
   updateLockButton();
 });
 
-undoBtn.addEventListener('click', undo);
-redoBtn.addEventListener('click', redo);
+undoBtn.addEventListener("click", undo);
+redoBtn.addEventListener("click", redo);
 
-lockBtn.addEventListener('click', () => {
-  const el = getActiveElement();
-  if (!el) return;
-  el.locked = !el.locked;
+lockBtn.addEventListener("click", () => {
+  isBoardLocked = !isBoardLocked;
   updateLockButton();
-  render();
 });
 
-menuToggle.addEventListener('click', () => {
-  controls.classList.toggle('active');
+const toolGroupWrapper = document.querySelector(".tool-group-wrapper");
+menuToggle.addEventListener("click", () => {
+  toolGroupWrapper.classList.toggle("active");
 });
 
 // Close menu when clicking outside
-document.addEventListener('click', (e) => {
-  if (!menuToggle.contains(e.target) && !controls.contains(e.target)) {
-    controls.classList.remove('active');
+document.addEventListener("click", (e) => {
+  if (!menuToggle.contains(e.target) && !toolGroupWrapper.contains(e.target)) {
+    toolGroupWrapper.classList.remove("active");
   }
 });
 
-exportBtn.addEventListener('click', () => {
-  const dataUrl = canvas.toDataURL('image/png');
-  const link = document.createElement('a');
+exportBtn.addEventListener("click", () => {
+  const dataUrl = canvas.toDataURL("image/png");
+  const link = document.createElement("a");
   link.href = dataUrl;
-  link.download = 'whiteboard.png';
+  link.download = "whiteboard.png";
   link.click();
 });
 
-shareBtn.addEventListener('click', async () => {
-  const dataUrl = canvas.toDataURL('image/png');
+shareBtn.addEventListener("click", async () => {
+  const dataUrl = canvas.toDataURL("image/png");
   try {
-    if (
-      navigator.share &&
-      window.Blob &&
-      window.File &&
-      navigator.canShare
-    ) {
+    if (navigator.share && window.Blob && window.File && navigator.canShare) {
       const res = await fetch(dataUrl);
       const blob = await res.blob();
-      const file = new File([blob], 'whiteboard.png', { type: 'image/png' });
+      const file = new File([blob], "whiteboard.png", { type: "image/png" });
       if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'Whiteboard' });
+        await navigator.share({ files: [file], title: "Whiteboard" });
         return;
       }
     }
 
     if (navigator.share) {
-      await navigator.share({ title: 'Whiteboard', url: dataUrl });
+      await navigator.share({ title: "Whiteboard", url: dataUrl });
       return;
     }
 
-    window.prompt('Copy this image URL to share:', dataUrl);
+    window.prompt("Copy this image URL to share:", dataUrl);
   } catch (err) {
-    window.prompt('Copy this image URL to share:', dataUrl);
+    window.prompt("Copy this image URL to share:", dataUrl);
   }
 });
 
-imageInput.addEventListener('change', (e) => {
+imageInput.addEventListener("change", (e) => {
   const [file] = e.target.files;
   if (!file) return;
   const reader = new FileReader();
@@ -837,17 +903,15 @@ imageInput.addEventListener('change', (e) => {
       width *= scale;
       height *= scale;
 
-      const pos =
-        pendingImagePosition ||
-        {
-          x: (canvas.clientWidth - width) / 2,
-          y: (canvas.clientHeight - height) / 2,
-        };
+      const pos = pendingImagePosition || {
+        x: (canvas.clientWidth - width) / 2,
+        y: (canvas.clientHeight - height) / 2,
+      };
 
       pushHistory();
       const el = {
         id: nextId(),
-        type: 'image',
+        type: "image",
         x: pos.x,
         y: pos.y,
         width,
@@ -865,21 +929,21 @@ imageInput.addEventListener('change', (e) => {
     img.src = src;
   };
   reader.readAsDataURL(file);
-  e.target.value = '';
+  e.target.value = "";
 });
 
-textInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
+textInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
     e.preventDefault();
     commitText();
-  } else if (e.key === 'Escape') {
+  } else if (e.key === "Escape") {
     e.preventDefault();
     closeTextModal();
     currentTextPosition = null;
   }
 });
 
-textModal.addEventListener('click', (e) => {
+textModal.addEventListener("click", (e) => {
   if (e.target === textModal) {
     closeTextModal();
     currentTextPosition = null;
@@ -890,7 +954,7 @@ function setTool(tool) {
   currentTool = tool;
   toolButtons.forEach((b) => {
     const bTool = b.dataset.tool;
-    b.classList.toggle('active', bTool === tool);
+    b.classList.toggle("active", bTool === tool);
   });
   if (tool !== Tools.TEXT) {
     closeTextModal();
@@ -899,25 +963,25 @@ function setTool(tool) {
 }
 
 toolButtons.forEach((btn) => {
-  btn.addEventListener('click', () => {
+  btn.addEventListener("click", () => {
     const tool = btn.dataset.tool;
     setTool(tool);
   });
 });
 
-document.addEventListener('keydown', (e) => {
+document.addEventListener("keydown", (e) => {
   const activeTag =
     document.activeElement && document.activeElement.tagName.toLowerCase();
 
   // Allow Ctrl/Cmd undo/redo even when typing, but avoid other shortcuts
-  if (activeTag === 'input' || activeTag === 'textarea') {
+  if (activeTag === "input" || activeTag === "textarea") {
     if (!(e.ctrlKey || e.metaKey)) return;
   }
 
   // Undo / redo
   if (e.ctrlKey || e.metaKey) {
     const key = e.key.toLowerCase();
-    if (key === 'z') {
+    if (key === "z") {
       e.preventDefault();
       if (e.shiftKey) {
         redo();
@@ -926,12 +990,12 @@ document.addEventListener('keydown', (e) => {
       }
       return;
     }
-    if (key === 'y') {
+    if (key === "y") {
       e.preventDefault();
       redo();
       return;
     }
-    if (key === 's') {
+    if (key === "s") {
       e.preventDefault();
       exportBtn.click();
       return;
@@ -939,9 +1003,9 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (e.altKey || e.ctrlKey || e.metaKey) return;
-  
+
   // Escape key to select tool
-  if (e.key === 'Escape') {
+  if (e.key === "Escape") {
     e.preventDefault();
     setTool(Tools.SELECT);
     return;
@@ -949,26 +1013,26 @@ document.addEventListener('keydown', (e) => {
 
   const key = e.key.toLowerCase();
   switch (key) {
-    case 'v':
+    case "v":
       setTool(Tools.SELECT);
       break;
-    case 'p':
-    case 'b':
+    case "p":
+    case "b":
       setTool(Tools.PEN);
       break;
-    case 'l':
+    case "l":
       setTool(Tools.LINE);
       break;
-    case 'r':
+    case "r":
       setTool(Tools.RECTANGLE);
       break;
-    case 'o':
+    case "o":
       setTool(Tools.ELLIPSE);
       break;
-    case 't':
+    case "t":
       setTool(Tools.TEXT);
       break;
-    case 'i': {
+    case "i": {
       const el = getActiveElement();
       if (!el) break;
       e.preventDefault();
@@ -977,11 +1041,15 @@ document.addEventListener('keydown', (e) => {
       render();
       break;
     }
-    case 'e':
-      setTool(Tools.ERASER);
+    case "e":
+      if (e.shiftKey) {
+        setTool(Tools.ERASER_AREA);
+      } else {
+        setTool(Tools.ERASER);
+      }
       break;
-    case 'delete':
-    case 'backspace': {
+    case "delete":
+    case "backspace": {
       const el = getActiveElement();
       if (!el || el.locked) return;
       e.preventDefault();
@@ -1001,7 +1069,7 @@ const defaultToolButton = document.querySelector(
   '.tool-button[data-tool="pen"]',
 );
 if (defaultToolButton) {
-  defaultToolButton.classList.add('active');
+  defaultToolButton.classList.add("active");
 }
 
 // Load saved drawing from localStorage

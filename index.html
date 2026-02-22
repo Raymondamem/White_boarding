@@ -29,7 +29,7 @@
                 title="Select (V)"
                 aria-label="Select tool (shortcut V)"
               >
-                Select
+                <i data-lucide="mouse-pointer-2"></i>
               </button>
               <button
                 class="tool-button"
@@ -37,7 +37,7 @@
                 title="Pen (P or B)"
                 aria-label="Pen tool (shortcut P or B)"
               >
-                Pen
+                <i data-lucide="pencil"></i>
               </button>
               <button
                 class="tool-button"
@@ -45,7 +45,7 @@
                 title="Line (L)"
                 aria-label="Line tool (shortcut L)"
               >
-                Line
+                <i data-lucide="minus"></i>
               </button>
               <button
                 class="tool-button"
@@ -53,7 +53,7 @@
                 title="Rectangle (R)"
                 aria-label="Rectangle tool (shortcut R)"
               >
-                Rect
+                <i data-lucide="square"></i>
               </button>
               <button
                 class="tool-button"
@@ -61,7 +61,7 @@
                 title="Ellipse (O)"
                 aria-label="Ellipse tool (shortcut O)"
               >
-                Ellipse
+                <i data-lucide="circle"></i>
               </button>
               <button
                 class="tool-button"
@@ -69,7 +69,7 @@
                 title="Text (T)"
                 aria-label="Text tool (shortcut T)"
               >
-                Text
+                <i data-lucide="type"></i>
               </button>
               <button
                 class="tool-button"
@@ -77,7 +77,7 @@
                 title="Image (I)"
                 aria-label="Image tool (shortcut I)"
               >
-                Image
+                <i data-lucide="image"></i>
               </button>
               <button
                 class="tool-button"
@@ -85,7 +85,15 @@
                 title="Eraser (E)"
                 aria-label="Eraser tool (shortcut E)"
               >
-                Eraser
+                <i data-lucide="eraser"></i>
+              </button>
+              <button
+                class="tool-button"
+                data-tool="eraser_area"
+                title="Area Eraser (Shift+E)"
+                aria-label="Area Eraser tool (shortcut Shift+E)"
+              >
+                <i data-lucide="box-select"></i>
               </button>
             </div>
           </div>
@@ -104,35 +112,34 @@
             title="Undo (Ctrl+Z)"
             aria-label="Undo (shortcut Ctrl+Z)"
           >
-            Undo
+            <i data-lucide="undo-2"></i>
           </button>
           <button
             id="redoBtn"
             title="Redo (Ctrl+Y / Ctrl+Shift+Z)"
             aria-label="Redo (shortcut Ctrl+Y or Ctrl+Shift+Z)"
           >
-            Redo
+            <i data-lucide="redo-2"></i>
           </button>
           <button
             id="lockBtn"
-            disabled
-            title="Lock selected"
-            aria-label="Lock or unlock selected shape"
+            title="Lock board"
+            aria-label="Lock or unlock board"
           >
-            Lock
+            <i data-lucide="lock"></i>
           </button>
           <button id="clearBtn" title="Clear board" aria-label="Clear board">
-            Clear
+            <i data-lucide="trash-2"></i>
           </button>
           <button
             id="exportBtn"
             title="Export as PNG"
             aria-label="Export as PNG image"
           >
-            Export PNG
+            <i data-lucide="download"></i>
           </button>
           <button id="shareBtn" title="Share image" aria-label="Share image">
-            Share
+            <i data-lucide="share-2"></i>
           </button>
         </div>
         <button
@@ -157,7 +164,9 @@
         </button>
       </header>
       <main class="board-wrapper">
-        <canvas id="board"></canvas>
+        <div class="canvas-wrapper">
+          <canvas id="board"></canvas>
+        </div>
         <div id="textModal" class="text-modal">
           <div class="text-modal-content">
             <input
@@ -177,6 +186,11 @@
       />
     </div>
 
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
     <script src="app.js"></script>
+    <script>
+      lucide.createIcons();
+    </script>
   </body>
 </html>
