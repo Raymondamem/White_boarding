@@ -25,6 +25,7 @@ const Tools = {
   IMAGE: "image",
   ERASER: "eraser",
   ERASER_AREA: "eraser_area",
+  ARROW: "arrow",
 };
 
 let currentTool = Tools.PEN;
@@ -41,6 +42,7 @@ let pendingImagePosition = null;
 let currentTextPosition = null;
 let selectionRect = null;
 let isBoardLocked = false;
+let isBending = false;
 const imageCache = new Map();
 
 // LocalStorage management
@@ -203,10 +205,38 @@ function isPointInElement(pos, el) {
       return nx * nx + ny * ny <= 1;
     }
     case "line":
+    case "arrow": {
+      if (el.cp) {
+        // Approximate curve distance by sampling
+        const steps = 10;
+        for (let i = 0; i < steps; i++) {
+          const t1 = i / steps;
+          const t2 = (i + 1) / steps;
+          const getQ = (t) => ({
+            x:
+              (1 - t) * (1 - t) * el.x1 +
+              2 * (1 - t) * t * el.cp.x +
+              t * t * el.x2,
+            y:
+              (1 - t) * (1 - t) * el.y1 +
+              2 * (1 - t) * t * el.cp.y +
+              t * t * el.y2,
+          });
+          const p1 = getQ(t1);
+          const p2 = getQ(t2);
+          if (
+            distancePointToSegment(x, y, p1.x, p1.y, p2.x, p2.y) <=
+            (el.size || 4) + 3
+          )
+            return true;
+        }
+        return false;
+      }
       return (
         distancePointToSegment(x, y, el.x1, el.y1, el.x2, el.y2) <=
         (el.size || 4) + 3
       );
+    }
     case "pen": {
       const pts = el.points;
       for (let i = 0; i < pts.length - 1; i += 1) {
@@ -255,11 +285,18 @@ function elementBounds(el) {
       const y2 = Math.max(el.y, el.y + el.h);
       return { x1, y1, x2, y2 };
     }
-    case "line": {
-      const x1 = Math.min(el.x1, el.x2);
-      const y1 = Math.min(el.y1, el.y2);
-      const x2 = Math.max(el.x1, el.x2);
-      const y2 = Math.max(el.y1, el.y2);
+    case "line":
+    case "arrow": {
+      let x1 = Math.min(el.x1, el.x2);
+      let y1 = Math.min(el.y1, el.y2);
+      let x2 = Math.max(el.x1, el.x2);
+      let y2 = Math.max(el.y1, el.y2);
+      if (el.cp) {
+        x1 = Math.min(x1, el.cp.x);
+        y1 = Math.min(y1, el.cp.y);
+        x2 = Math.max(x2, el.cp.x);
+        y2 = Math.max(y2, el.cp.y);
+      }
       return { x1, y1, x2, y2 };
     }
     case "pen": {
@@ -327,7 +364,40 @@ function drawElement(el) {
     case "line": {
       ctx.beginPath();
       ctx.moveTo(el.x1, el.y1);
-      ctx.lineTo(el.x2, el.y2);
+      if (el.cp) {
+        ctx.quadraticCurveTo(el.cp.x, el.cp.y, el.x2, el.y2);
+      } else {
+        ctx.lineTo(el.x2, el.y2);
+      }
+      ctx.stroke();
+      break;
+    }
+    case "arrow": {
+      ctx.beginPath();
+      ctx.moveTo(el.x1, el.y1);
+      if (el.cp) {
+        ctx.quadraticCurveTo(el.cp.x, el.cp.y, el.x2, el.y2);
+      } else {
+        ctx.lineTo(el.x2, el.y2);
+      }
+      ctx.stroke();
+
+      // Draw arrowhead
+      const headLength = Math.max(10, el.size * 2.5);
+      const angle = el.cp
+        ? Math.atan2(el.y2 - el.cp.y, el.x2 - el.cp.x)
+        : Math.atan2(el.y2 - el.y1, el.x2 - el.x1);
+      ctx.beginPath();
+      ctx.moveTo(el.x2, el.y2);
+      ctx.lineTo(
+        el.x2 - headLength * Math.cos(angle - Math.PI / 6),
+        el.y2 - headLength * Math.sin(angle - Math.PI / 6),
+      );
+      ctx.moveTo(el.x2, el.y2);
+      ctx.lineTo(
+        el.x2 - headLength * Math.cos(angle + Math.PI / 6),
+        el.y2 - headLength * Math.sin(angle + Math.PI / 6),
+      );
       ctx.stroke();
       break;
     }
@@ -436,9 +506,10 @@ function startDrawing(pos) {
       };
       break;
     case Tools.LINE:
+    case Tools.ARROW:
       el = {
         ...common,
-        type: "line",
+        type: currentTool,
         x1: pos.x,
         y1: pos.y,
         x2: pos.x,
@@ -485,6 +556,7 @@ function updateDrawing(pos) {
       el.points.push({ x: pos.x, y: pos.y });
       break;
     case "line":
+    case "arrow":
       el.x2 = pos.x;
       el.y2 = pos.y;
       break;
@@ -543,10 +615,14 @@ function updateDragging(pos) {
       el.y = snap.y + dy;
       break;
     case "line":
+    case "arrow":
       el.x1 = snap.x1 + dx;
       el.y1 = snap.y1 + dy;
       el.x2 = snap.x2 + dx;
       el.y2 = snap.y2 + dy;
+      if (snap.cp) {
+        el.cp = { x: snap.cp.x + dx, y: snap.cp.y + dy };
+      }
       break;
     case "pen":
       el.points = snap.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
@@ -607,7 +683,8 @@ function updateResizing(pos) {
       el.h = Math.abs(newH) < minSize ? (newH >= 0 ? minSize : -minSize) : newH;
       break;
     }
-    case "line": {
+    case "line":
+    case "arrow": {
       const dx2 = pos.x - resizeStart.mouse.x;
       const dy2 = pos.y - resizeStart.mouse.y;
       el.x2 = snap.x2 + dx2;
@@ -756,11 +833,32 @@ function handleMouseDown(e) {
     return;
   }
 
+  if (isBending) {
+    isBending = false;
+    stopDrawing();
+    return;
+  }
+
   startDrawing(pos);
 }
 
 function handleMouseMove(e) {
   const pos = getCanvasPos(e);
+
+  if (isBending) {
+    const el = getActiveElement();
+    if (el) {
+      // To make the quadratic curve pass through the mouse pos (M) at t=0.5:
+      // M = 0.25*P1 + 0.5*CP + 0.25*P2
+      // CP = 2*M - 0.5*P1 - 0.5*P2
+      el.cp = {
+        x: 2 * pos.x - 0.5 * el.x1 - 0.5 * el.x2,
+        y: 2 * pos.y - 0.5 * el.y1 - 0.5 * el.y2,
+      };
+      render();
+    }
+    return;
+  }
 
   if (isDrawing) {
     if (currentTool === Tools.ERASER_AREA) {
@@ -812,8 +910,14 @@ function handleMouseUp() {
       }
       selectionRect = null;
       render();
+    } else {
+      const el = getActiveElement();
+      if (el && (el.type === "line" || el.type === "arrow")) {
+        isBending = true;
+      } else {
+        stopDrawing();
+      }
     }
-    stopDrawing();
   }
   if (dragStart) {
     stopDragging();
@@ -960,6 +1064,7 @@ function setTool(tool) {
     closeTextModal();
     currentTextPosition = null;
   }
+  isBending = false;
 }
 
 toolButtons.forEach((btn) => {
@@ -1004,10 +1109,17 @@ document.addEventListener("keydown", (e) => {
 
   if (e.altKey || e.ctrlKey || e.metaKey) return;
 
-  // Escape key to select tool
+  // Escape key to select tool or finish draw
   if (e.key === "Escape") {
     e.preventDefault();
-    setTool(Tools.SELECT);
+    if (isDrawing || isBending) {
+      isDrawing = false;
+      isBending = false;
+      pointerDownPos = null;
+      render();
+    } else {
+      setTool(Tools.SELECT);
+    }
     return;
   }
 
@@ -1031,6 +1143,9 @@ document.addEventListener("keydown", (e) => {
       break;
     case "t":
       setTool(Tools.TEXT);
+      break;
+    case "a":
+      setTool(Tools.ARROW);
       break;
     case "i": {
       const el = getActiveElement();
