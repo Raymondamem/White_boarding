@@ -276,6 +276,8 @@ body {
   color: $text;
   border-radius: 4px;
   outline: none;
+  resize: vertical;
+  min-height: 100px;
 
   &:focus {
     border-color: $accent;

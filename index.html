@@ -49,6 +49,14 @@
               </button>
               <button
                 class="tool-button"
+                data-tool="arrow"
+                title="Arrow (A)"
+                aria-label="Arrow tool (shortcut A)"
+              >
+                <i data-lucide="move-up-right"></i>
+              </button>
+              <button
+                class="tool-button"
                 data-tool="rectangle"
                 title="Rectangle (R)"
                 aria-label="Rectangle tool (shortcut R)"
@@ -105,7 +113,14 @@
           </label>
           <label>
             Size
-            <input type="range" id="sizePicker" min="1" max="30" value="5" />
+            <input
+              type="range"
+              id="sizePicker"
+              min="1"
+              max="30"
+              step="5"
+              value="5"
+            />
           </label>
           <button
             id="undoBtn"
@@ -169,12 +184,12 @@
         </div>
         <div id="textModal" class="text-modal">
           <div class="text-modal-content">
-            <input
-              type="text"
+            <textarea
               id="textInput"
               class="text-input"
               placeholder="Enter text..."
-            />
+              rows="3"
+            ></textarea>
           </div>
         </div>
       </main>
