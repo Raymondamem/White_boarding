@@ -15,6 +15,10 @@ const textInput = document.getElementById("textInput");
 const menuToggle = document.getElementById("menuToggle");
 const controls = document.querySelector(".controls");
 const toolButtons = document.querySelectorAll(".tool-button");
+const zoomIn = document.getElementById("zoomIn");
+const zoomOut = document.getElementById("zoomOut");
+const zoomLevelText = document.getElementById("zoomLevel");
+const curveToggle = document.getElementById("curveToggle");
 
 const Tools = {
   SELECT: "select",
@@ -44,6 +48,11 @@ let currentTextPosition = null;
 let selectionRect = null;
 let isBoardLocked = false;
 let isBending = false;
+let isCurveModeEnabled = false;
+let canvasScale = 1;
+let activePointers = new Map();
+let initialPinchDistance = null;
+let initialPinchScale = 1;
 const imageCache = new Map();
 
 // LocalStorage management
@@ -112,8 +121,8 @@ function redo() {
 function getCanvasPos(evt) {
   const rect = canvas.getBoundingClientRect();
   return {
-    x: evt.clientX - rect.left,
-    y: evt.clientY - rect.top,
+    x: (evt.clientX - rect.left) / canvasScale,
+    y: (evt.clientY - rect.top) / canvasScale,
   };
 }
 
@@ -133,12 +142,13 @@ function setCanvasSize() {
 
   // Vertical dimension always fits the container now
   canvas.style.height = "100%";
+  canvas.style.touchAction = "none";
 
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.setTransform(dpr * canvasScale, 0, 0, dpr * canvasScale, 0, 0);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   render();
@@ -253,13 +263,8 @@ function isPointInElement(pos, el) {
       return false;
     }
     case "text": {
-      const fontSize = el.size || 16;
-      ctx.save();
-      ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
-      const width = ctx.measureText(el.text).width;
-      ctx.restore();
-      const height = fontSize * 1.2;
-      return x >= el.x && x <= el.x + width && y >= el.y && y <= el.y + height;
+      const { x1, y1, x2, y2 } = elementBounds(el);
+      return x >= x1 && x <= x2 && y >= y1 && y <= y2;
     }
     case "image":
       return (
@@ -323,10 +328,14 @@ function elementBounds(el) {
       const fontSize = el.size || 16;
       ctx.save();
       ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
-      const width = ctx.measureText(el.text).width;
+      const lines = (el.text || "").split("\n");
+      let maxWidth = 0;
+      lines.forEach((line) => {
+        maxWidth = Math.max(maxWidth, ctx.measureText(line).width);
+      });
       ctx.restore();
-      const height = fontSize * 1.2;
-      return { x1: el.x, y1: el.y, x2: el.x + width, y2: el.y + height };
+      const height = fontSize * 1.2 * lines.length;
+      return { x1: el.x, y1: el.y, x2: el.x + maxWidth, y2: el.y + height };
     }
     case "image":
       return {
@@ -419,7 +428,10 @@ function drawElement(el) {
       ctx.font = `${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
       ctx.fillStyle = el.color || "#0f172a";
       ctx.textBaseline = "top";
-      ctx.fillText(el.text, el.x, el.y);
+      const lines = (el.text || "").split("\n");
+      lines.forEach((line, i) => {
+        ctx.fillText(line, el.x, el.y + i * fontSize * 1.2);
+      });
       ctx.restore();
       break;
     }
@@ -547,7 +559,7 @@ function startDrawing(pos) {
   render();
 }
 
-function updateDrawing(pos) {
+function updateDrawing(pos, e) {
   if (!isDrawing) return;
   const el = getActiveElement();
   if (!el) return;
@@ -558,8 +570,17 @@ function updateDrawing(pos) {
       break;
     case "line":
     case "arrow":
-      el.x2 = pos.x;
-      el.y2 = pos.y;
+      if (e && (e.ctrlKey || e.metaKey)) {
+        // Bending logic enabled while dragging
+        el.cp = {
+          x: 2 * pos.x - 0.5 * el.x1 - 0.5 * el.x2,
+          y: 2 * pos.y - 0.5 * el.y1 - 0.5 * el.y2,
+        };
+      } else {
+        el.x2 = pos.x;
+        el.y2 = pos.y;
+        delete el.cp;
+      }
       break;
     case "rectangle":
       el.w = pos.x - el.x;
@@ -690,20 +711,45 @@ function updateResizing(pos) {
       const dy2 = pos.y - resizeStart.mouse.y;
       el.x2 = snap.x2 + dx2;
       el.y2 = snap.y2 + dy2;
+
+      if (snap.cp) {
+        // Scale control point relative to x1, y1
+        const originalW = snap.x2 - snap.x1;
+        const originalH = snap.y2 - snap.y1;
+        const currentW = el.x2 - el.x1;
+        const currentH = el.y2 - el.y1;
+
+        const sw = originalW === 0 ? 1 : currentW / originalW;
+        const sh = originalH === 0 ? 1 : currentH / originalH;
+
+        el.cp = {
+          x: snap.x1 + (snap.cp.x - snap.x1) * sw,
+          y: snap.y1 + (snap.cp.y - snap.y1) * sh,
+        };
+      }
       break;
     }
     case "pen": {
+      const bounds = elementBounds(snap);
+      const originalW = bounds.x2 - bounds.x1;
+      const originalH = bounds.y2 - bounds.y1;
       const dx2 = pos.x - resizeStart.mouse.x;
       const dy2 = pos.y - resizeStart.mouse.y;
+
+      const sw = originalW <= 0 ? 1 : (originalW + dx2) / originalW;
+      const sh = originalH <= 0 ? 1 : (originalH + dy2) / originalH;
+
       el.points = snap.points.map((p) => ({
-        x: p.x + dx2,
-        y: p.y + dy2,
+        x: bounds.x1 + (p.x - bounds.x1) * sw,
+        y: bounds.y1 + (p.y - bounds.y1) * sh,
       }));
       break;
     }
     case "text": {
-      const newSize = Math.max(8, snap.size + Math.round(dx / 5));
+      const dx2 = pos.x - resizeStart.mouse.x;
+      const newSize = Math.max(8, snap.size + Math.round(dx2 / 5));
       el.size = newSize;
+      sizePicker.value = Math.round(newSize / 2);
       break;
     }
   }
@@ -755,9 +801,25 @@ function commitText() {
   updateLockButton();
 }
 
-function handleMouseDown(e) {
+function handlePointerDown(e) {
   if (isBoardLocked) return;
+  // e.button === 0 is left click. Touch events have button 0.
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+
+  activePointers.set(e.pointerId, e);
+
+  if (activePointers.size === 2) {
+    const pts = Array.from(activePointers.values());
+    initialPinchDistance = Math.hypot(
+      pts[0].clientX - pts[1].clientX,
+      pts[0].clientY - pts[1].clientY,
+    );
+    initialPinchScale = canvasScale;
+    return;
+  }
+
   const pos = getCanvasPos(e);
+  pointerDownPos = pos;
 
   if (currentTool === Tools.SELECT) {
     const el = hitTest(pos);
@@ -772,6 +834,16 @@ function handleMouseDown(e) {
 
     activeElementId = el.id;
 
+    // Update pickers to match selected element
+    if (!el.locked) {
+      if (el.color) colorPicker.value = el.color;
+      if (el.type === "text") {
+        sizePicker.value = Math.round((el.size || 16) / 2);
+      } else {
+        sizePicker.value = el.size || 2;
+      }
+    }
+
     // Prevent dragging or resizing locked elements
     if (el.locked) {
       render();
@@ -779,8 +851,20 @@ function handleMouseDown(e) {
       return;
     }
 
+    activeElementId = el.id;
+
+    // Update pickers to match selected element
+    if (!el.locked) {
+      if (el.color) colorPicker.value = el.color;
+      if (el.type === "text") {
+        sizePicker.value = Math.round((el.size || 16) / 2);
+      } else {
+        sizePicker.value = el.size || 2;
+      }
+    }
+
     const { x1, y1, x2, y2 } = elementBounds(el);
-    const handleSize = 12;
+    const handleSize = 20; // Larger handle for touch
     const inHandle =
       pos.x >= x2 - handleSize &&
       pos.x <= x2 &&
@@ -843,13 +927,30 @@ function handleMouseDown(e) {
   startDrawing(pos);
 }
 
-function handleMouseMove(e) {
+function handlePointerMove(e) {
+  // Update state for pinch
+  if (activePointers.has(e.pointerId)) {
+    activePointers.set(e.pointerId, e);
+  }
+
+  if (activePointers.size === 2 && initialPinchDistance) {
+    const pts = Array.from(activePointers.values());
+    const currentDist = Math.hypot(
+      pts[0].clientX - pts[1].clientX,
+      pts[0].clientY - pts[1].clientY,
+    );
+    const scaleFactor = currentDist / initialPinchDistance;
+    updateZoom(initialPinchScale * scaleFactor);
+    return;
+  }
+
   const pos = getCanvasPos(e);
+  const isCtrl = e.ctrlKey || e.metaKey || isCurveModeEnabled;
 
   if (isBending) {
     const el = getActiveElement();
     if (el) {
-      if (e.ctrlKey || e.metaKey) {
+      if (isCtrl) {
         // To make the quadratic curve pass through the mouse pos (M) at t=0.5:
         // M = 0.25*P1 + 0.5*CP + 0.25*P2
         // CP = 2*M - 0.5*P1 - 0.5*P2
@@ -871,7 +972,7 @@ function handleMouseMove(e) {
       selectionRect.h = pos.y - pointerDownPos.y;
       render();
     } else {
-      updateDrawing(pos);
+      updateDrawing(pos, { ...e, ctrlKey: isCtrl });
     }
     return;
   }
@@ -886,9 +987,16 @@ function handleMouseMove(e) {
   }
 }
 
-function handleMouseUp(e) {
+function handlePointerUp(e) {
+  activePointers.delete(e.pointerId);
+  if (activePointers.size < 2) {
+    initialPinchDistance = null;
+  }
+
   if (isDrawing) {
+    const isCtrl = e.ctrlKey || e.metaKey || isCurveModeEnabled;
     if (currentTool === Tools.ERASER_AREA && selectionRect) {
+      // ... existing deletion logic ...
       const x1 = Math.min(selectionRect.x, selectionRect.x + selectionRect.w);
       const y1 = Math.min(selectionRect.y, selectionRect.y + selectionRect.h);
       const x2 = Math.max(selectionRect.x, selectionRect.x + selectionRect.w);
@@ -896,7 +1004,6 @@ function handleMouseUp(e) {
 
       const toDelete = elements.filter((el) => {
         const bounds = elementBounds(el);
-        // Standard AABB intersection
         return !(
           bounds.x2 < x1 ||
           bounds.x1 > x2 ||
@@ -917,11 +1024,7 @@ function handleMouseUp(e) {
       render();
     } else {
       const el = getActiveElement();
-      if (
-        el &&
-        (el.type === "line" || el.type === "arrow") &&
-        (e.ctrlKey || e.metaKey)
-      ) {
+      if (el && (el.type === "line" || el.type === "arrow") && isCtrl) {
         isBending = true;
       } else {
         stopDrawing();
@@ -936,9 +1039,10 @@ function handleMouseUp(e) {
   }
 }
 
-canvas.addEventListener("mousedown", handleMouseDown);
-window.addEventListener("mousemove", handleMouseMove);
-window.addEventListener("mouseup", handleMouseUp);
+canvas.addEventListener("pointerdown", handlePointerDown);
+window.addEventListener("pointermove", handlePointerMove);
+window.addEventListener("pointerup", handlePointerUp);
+window.addEventListener("pointercancel", handlePointerUp);
 
 clearBtn.addEventListener("click", () => {
   if (!elements.length) return;
@@ -1056,7 +1160,7 @@ imageInput.addEventListener("change", (e) => {
 });
 
 textInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     commitText();
   } else if (e.key === "Escape") {
@@ -1092,6 +1196,60 @@ toolButtons.forEach((btn) => {
     setTool(tool);
   });
 });
+
+colorPicker.addEventListener("input", () => {
+  const el = getActiveElement();
+  if (el && !el.locked) {
+    el.color = colorPicker.value;
+    render();
+  }
+});
+
+sizePicker.addEventListener("input", () => {
+  const el = getActiveElement();
+  if (el && !el.locked) {
+    const val = Number(sizePicker.value);
+    if (el.type === "text") {
+      el.size = Math.max(12, val * 2);
+    } else {
+      el.size = val;
+    }
+    render();
+  }
+});
+
+function updateZoom(newScale) {
+  canvasScale = Math.max(0.1, Math.min(5, newScale));
+  if (zoomLevelText) {
+    zoomLevelText.textContent = `${Math.round(canvasScale * 100)}%`;
+  }
+  setCanvasSize();
+}
+
+if (zoomIn)
+  zoomIn.addEventListener("click", () => updateZoom(canvasScale + 0.1));
+if (zoomOut)
+  zoomOut.addEventListener("click", () => updateZoom(canvasScale - 0.1));
+if (zoomLevelText) zoomLevelText.addEventListener("click", () => updateZoom(1));
+
+if (curveToggle) {
+  curveToggle.addEventListener("click", () => {
+    isCurveModeEnabled = !isCurveModeEnabled;
+    curveToggle.classList.toggle("active", isCurveModeEnabled);
+  });
+}
+
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      updateZoom(canvasScale + delta);
+    }
+  },
+  { passive: false },
+);
 
 document.addEventListener("keydown", (e) => {
   const activeTag =
@@ -1192,6 +1350,27 @@ document.addEventListener("keydown", (e) => {
       activeElementId = null;
       render();
       updateLockButton();
+      break;
+    }
+    case "[":
+    case "]": {
+      e.preventDefault();
+      const delta = key === "[" ? -5 : 5;
+      const newVal = Math.max(
+        1,
+        Math.min(100, Number(sizePicker.value) + delta),
+      );
+      sizePicker.value = newVal;
+      // Trigger the input event logic manually
+      const el = getActiveElement();
+      if (el && !el.locked) {
+        if (el.type === "text") {
+          el.size = Math.max(12, newVal * 2);
+        } else {
+          el.size = newVal;
+        }
+        render();
+      }
       break;
     }
     default:

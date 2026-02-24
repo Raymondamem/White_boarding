@@ -64,6 +64,14 @@
                 <i data-lucide="square"></i>
               </button>
               <button
+                id="curveToggle"
+                class="tool-button"
+                title="Curve Mode (Ctrl)"
+                aria-label="Toggle curve/bend mode"
+              >
+                <i data-lucide="spline"></i>
+              </button>
+              <button
                 class="tool-button"
                 data-tool="ellipse"
                 title="Ellipse (O)"
@@ -122,6 +130,15 @@
               value="5"
             />
           </label>
+          <div class="zoom-controls">
+            <button id="zoomOut" title="Zoom Out">
+              <i data-lucide="zoom-out"></i>
+            </button>
+            <span id="zoomLevel">100%</span>
+            <button id="zoomIn" title="Zoom In">
+              <i data-lucide="zoom-in"></i>
+            </button>
+          </div>
           <button
             id="undoBtn"
             title="Undo (Ctrl+Z)"

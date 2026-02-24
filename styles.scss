@@ -191,6 +191,48 @@ body {
   }
 }
 
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(255, 255, 255, 0.6);
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: $text;
+  margin-left: 0.5rem;
+
+  button {
+    padding: 2px !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: $text !important;
+
+    i {
+      width: 1rem !important;
+      height: 1rem !important;
+    }
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.05) !important;
+    }
+  }
+
+  span {
+    min-width: 35px;
+    text-align: center;
+    cursor: pointer;
+    user-select: none;
+
+    &:hover {
+      text-decoration: underline;
+      color: $accent;
+    }
+  }
+}
+
 .board-wrapper {
   position: relative;
   flex: 1;
