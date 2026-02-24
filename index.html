@@ -136,14 +136,22 @@
           >
             <i data-lucide="redo-2"></i>
           </button>
-          <button
-            id="lockBtn"
-            title="Lock board"
-            aria-label="Lock or unlock board"
-          >
+          <button id="lockBtn" title="Lock board" aria-label="Lock board">
             <i data-lucide="lock"></i>
           </button>
-          <button id="clearBtn" title="Clear board" aria-label="Clear board">
+          <button
+            id="bgToggleBtn"
+            title="Toggle Background"
+            aria-label="Toggle Background"
+          >
+            <i data-lucide="layers"></i>
+          </button>
+          <button
+            id="clearBtn"
+            class="danger"
+            title="Clear board"
+            aria-label="Clear board"
+          >
             <i data-lucide="trash-2"></i>
           </button>
           <button
@@ -200,7 +208,7 @@
         style="display: none"
       />
     </div>
-
+    <div class="bg_img"></div>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
     <script src="app.js"></script>

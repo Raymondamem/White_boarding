@@ -9,6 +9,7 @@ const lockBtn = document.getElementById("lockBtn");
 const exportBtn = document.getElementById("exportBtn");
 const shareBtn = document.getElementById("shareBtn");
 const imageInput = document.getElementById("imageInput");
+const bgToggleBtn = document.getElementById("bgToggleBtn");
 const textModal = document.getElementById("textModal");
 const textInput = document.getElementById("textInput");
 const menuToggle = document.getElementById("menuToggle");
@@ -848,13 +849,17 @@ function handleMouseMove(e) {
   if (isBending) {
     const el = getActiveElement();
     if (el) {
-      // To make the quadratic curve pass through the mouse pos (M) at t=0.5:
-      // M = 0.25*P1 + 0.5*CP + 0.25*P2
-      // CP = 2*M - 0.5*P1 - 0.5*P2
-      el.cp = {
-        x: 2 * pos.x - 0.5 * el.x1 - 0.5 * el.x2,
-        y: 2 * pos.y - 0.5 * el.y1 - 0.5 * el.y2,
-      };
+      if (e.ctrlKey || e.metaKey) {
+        // To make the quadratic curve pass through the mouse pos (M) at t=0.5:
+        // M = 0.25*P1 + 0.5*CP + 0.25*P2
+        // CP = 2*M - 0.5*P1 - 0.5*P2
+        el.cp = {
+          x: 2 * pos.x - 0.5 * el.x1 - 0.5 * el.x2,
+          y: 2 * pos.y - 0.5 * el.y1 - 0.5 * el.y2,
+        };
+      } else {
+        delete el.cp;
+      }
       render();
     }
     return;
@@ -881,7 +886,7 @@ function handleMouseMove(e) {
   }
 }
 
-function handleMouseUp() {
+function handleMouseUp(e) {
   if (isDrawing) {
     if (currentTool === Tools.ERASER_AREA && selectionRect) {
       const x1 = Math.min(selectionRect.x, selectionRect.x + selectionRect.w);
@@ -912,7 +917,11 @@ function handleMouseUp() {
       render();
     } else {
       const el = getActiveElement();
-      if (el && (el.type === "line" || el.type === "arrow")) {
+      if (
+        el &&
+        (el.type === "line" || el.type === "arrow") &&
+        (e.ctrlKey || e.metaKey)
+      ) {
         isBending = true;
       } else {
         stopDrawing();
@@ -946,6 +955,16 @@ redoBtn.addEventListener("click", redo);
 lockBtn.addEventListener("click", () => {
   isBoardLocked = !isBoardLocked;
   updateLockButton();
+});
+
+bgToggleBtn.addEventListener("click", () => {
+  document.body.classList.toggle("is-transparent");
+  const icon = bgToggleBtn.querySelector("i");
+  if (icon) {
+    const isTrans = document.body.classList.contains("is-transparent");
+    icon.setAttribute("data-lucide", isTrans ? "eye-off" : "layers");
+    if (window.lucide) lucide.createIcons();
+  }
 });
 
 const toolGroupWrapper = document.querySelector(".tool-group-wrapper");
