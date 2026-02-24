@@ -9,6 +9,7 @@ $text: #0f172a; // dark text for light background
 
 * {
   box-sizing: border-box;
+  // background-color: transparent !important;
 }
 
 html,
@@ -24,6 +25,10 @@ body {
     sans-serif;
   background: $bg;
   color: $text;
+  // background: url(/img_test.jpg);
+  // background-size: cover;
+  // background-position: center;
+  // background-repeat: no-repeat;
 }
 
 .app {

@@ -583,14 +583,32 @@ function updateDrawing(pos, e) {
         delete el.cp;
       }
       break;
-    case "rectangle":
-      el.w = pos.x - el.x;
-      el.h = pos.y - el.y;
+    case "rectangle": {
+      const w = pos.x - el.x;
+      const h = pos.y - el.y;
+      if (e && (e.ctrlKey || e.metaKey || isCurveModeEnabled)) {
+        const side = Math.max(Math.abs(w), Math.abs(h));
+        el.w = w < 0 ? -side : side;
+        el.h = h < 0 ? -side : side;
+      } else {
+        el.w = w;
+        el.h = h;
+      }
       break;
-    case "ellipse":
-      el.w = pos.x - el.x;
-      el.h = pos.y - el.y;
+    }
+    case "ellipse": {
+      const w = pos.x - el.x;
+      const h = pos.y - el.y;
+      if (e && (e.ctrlKey || e.metaKey || isCurveModeEnabled)) {
+        const side = Math.max(Math.abs(w), Math.abs(h));
+        el.w = w < 0 ? -side : side;
+        el.h = h < 0 ? -side : side;
+      } else {
+        el.w = w;
+        el.h = h;
+      }
       break;
+    }
     default:
       break;
   }
