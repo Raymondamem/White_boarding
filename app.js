@@ -19,6 +19,8 @@ const zoomIn = document.getElementById("zoomIn");
 const zoomOut = document.getElementById("zoomOut");
 const zoomLevelText = document.getElementById("zoomLevel");
 const curveToggle = document.getElementById("curveToggle");
+const colorPreview = document.getElementById("colorPreview");
+const sizeValueDisplay = document.getElementById("sizeValueDisplay");
 
 const Tools = {
   SELECT: "select",
@@ -836,11 +838,18 @@ function handlePointerDown(e) {
 
     // Update pickers to match selected element
     if (!el.locked) {
-      if (el.color) colorPicker.value = el.color;
+      if (el.color) {
+        colorPicker.value = el.color;
+        if (colorPreview) colorPreview.style.backgroundColor = el.color;
+      }
       if (el.type === "text") {
-        sizePicker.value = Math.round((el.size || 16) / 2);
+        const val = Math.round((el.size || 16) / 2);
+        sizePicker.value = val;
+        if (sizeValueDisplay) sizeValueDisplay.textContent = val;
       } else {
-        sizePicker.value = el.size || 2;
+        const val = el.size || 2;
+        sizePicker.value = val;
+        if (sizeValueDisplay) sizeValueDisplay.textContent = val;
       }
     }
 
@@ -849,18 +858,6 @@ function handlePointerDown(e) {
       render();
       updateLockButton();
       return;
-    }
-
-    activeElementId = el.id;
-
-    // Update pickers to match selected element
-    if (!el.locked) {
-      if (el.color) colorPicker.value = el.color;
-      if (el.type === "text") {
-        sizePicker.value = Math.round((el.size || 16) / 2);
-      } else {
-        sizePicker.value = el.size || 2;
-      }
     }
 
     const { x1, y1, x2, y2 } = elementBounds(el);
@@ -1198,6 +1195,7 @@ toolButtons.forEach((btn) => {
 });
 
 colorPicker.addEventListener("input", () => {
+  if (colorPreview) colorPreview.style.backgroundColor = colorPicker.value;
   const el = getActiveElement();
   if (el && !el.locked) {
     el.color = colorPicker.value;
@@ -1206,9 +1204,10 @@ colorPicker.addEventListener("input", () => {
 });
 
 sizePicker.addEventListener("input", () => {
+  const val = Number(sizePicker.value);
+  if (sizeValueDisplay) sizeValueDisplay.textContent = val;
   const el = getActiveElement();
   if (el && !el.locked) {
-    const val = Number(sizePicker.value);
     if (el.type === "text") {
       el.size = Math.max(12, val * 2);
     } else {
@@ -1361,6 +1360,7 @@ document.addEventListener("keydown", (e) => {
         Math.min(100, Number(sizePicker.value) + delta),
       );
       sizePicker.value = newVal;
+      if (sizeValueDisplay) sizeValueDisplay.textContent = newVal;
       // Trigger the input event logic manually
       const el = getActiveElement();
       if (el && !el.locked) {
