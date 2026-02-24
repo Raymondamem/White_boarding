@@ -115,21 +115,27 @@
           </div>
         </div>
         <div class="toolbar-right controls">
-          <label>
-            Color
-            <input type="color" id="colorPicker" value="#222222" />
-          </label>
-          <label>
-            Size
-            <input
-              type="range"
-              id="sizePicker"
-              min="1"
-              max="30"
-              step="5"
-              value="5"
-            />
-          </label>
+          <div class="picker-group">
+            <div class="color-picker-wrapper" title="Choose Color">
+              <input type="color" id="colorPicker" value="#222222" />
+              <div
+                class="color-preview"
+                id="colorPreview"
+                style="background-color: #222222"
+              ></div>
+            </div>
+            <div class="size-picker-wrapper">
+              <div class="size-display" id="sizeValueDisplay">5</div>
+              <input
+                type="range"
+                id="sizePicker"
+                min="1"
+                max="100"
+                step="1"
+                value="5"
+              />
+            </div>
+          </div>
           <div class="zoom-controls">
             <button id="zoomOut" title="Zoom Out">
               <i data-lucide="zoom-out"></i>
