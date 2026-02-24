@@ -9,7 +9,6 @@ const lockBtn = document.getElementById("lockBtn");
 const exportBtn = document.getElementById("exportBtn");
 const shareBtn = document.getElementById("shareBtn");
 const imageInput = document.getElementById("imageInput");
-const bgToggleBtn = document.getElementById("bgToggleBtn");
 const textModal = document.getElementById("textModal");
 const textInput = document.getElementById("textInput");
 const menuToggle = document.getElementById("menuToggle");
@@ -1056,16 +1055,6 @@ redoBtn.addEventListener("click", redo);
 lockBtn.addEventListener("click", () => {
   isBoardLocked = !isBoardLocked;
   updateLockButton();
-});
-
-bgToggleBtn.addEventListener("click", () => {
-  document.body.classList.toggle("is-transparent");
-  const icon = bgToggleBtn.querySelector("i");
-  if (icon) {
-    const isTrans = document.body.classList.contains("is-transparent");
-    icon.setAttribute("data-lucide", isTrans ? "eye-off" : "layers");
-    if (window.lucide) lucide.createIcons();
-  }
 });
 
 const toolGroupWrapper = document.querySelector(".tool-group-wrapper");
